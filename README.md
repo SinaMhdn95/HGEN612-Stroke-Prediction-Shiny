@@ -60,7 +60,7 @@ The split and model-building process use a fixed random seed (`123`) for reprodu
 
 ## Data source and limitations
 
-The project uses the [Stroke Prediction Dataset](https://www.kaggle.com/datasets/fedesoriano/stroke-prediction-dataset) published by Kaggle user `fedesoriano`. The source page identifies a confidential upstream source, limits use to education, asks users to credit the author, and labels the data files as copyrighted by their original authors. For that reason this repository is private and no broader data license is claimed.
+The project uses the [Stroke Prediction Dataset](https://www.kaggle.com/datasets/fedesoriano/stroke-prediction-dataset) published by Kaggle user `fedesoriano`. The source page identifies a confidential upstream source, limits use to education, asks users to credit the author, and labels the data files as copyrighted by their original authors. It is included here for educational reproducibility; its public availability in this repository does not grant broader reuse or redistribution rights.
 
 The data are highly imbalanced and the source does not document a representative sampling design. Model scores therefore describe this classroom dataset and should not be interpreted as clinical performance or population risk.
 
