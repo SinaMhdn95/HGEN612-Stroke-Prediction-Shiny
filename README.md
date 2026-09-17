@@ -6,7 +6,6 @@ A Shiny-enabled `flexdashboard` created for the **HGEN 612: Methods in Data Scie
 
 > **Educational use only:** this project is not a medical device, has not been clinically validated, and must not be used for diagnosis, treatment, or individual risk assessment.
 
-![Stroke prediction Shiny dashboard preview](images/shiny-app-preview.jpg)
 
 ## Features
 
