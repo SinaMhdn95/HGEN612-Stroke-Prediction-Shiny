@@ -1,0 +1,15 @@
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+.DS_Store
+.Renviron
+.Renviron.*
+*.Rproj.user
+*_cache/
+*_files/
+rsconnect/
+.quarto/
+*.html
+*.log
+

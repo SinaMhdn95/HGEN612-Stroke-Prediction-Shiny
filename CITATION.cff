@@ -1,0 +1,16 @@
+cff-version: 1.2.0
+message: "If you reuse this software, please cite the repository. The dataset has separate restrictions described in NOTICE.md."
+title: "Stroke Prediction Shiny Dashboard"
+type: software
+authors:
+  - family-names: Mahdiani
+    given-names: Sina
+repository-code: "https://github.com/SinaMhdn95/HGEN612-Stroke-Prediction-Shiny"
+abstract: "An educational HGEN 612 Shiny dashboard comparing logistic regression, random forest, and XGBoost on a stroke-classification dataset."
+keywords:
+  - Shiny
+  - flexdashboard
+  - tidymodels
+  - classification
+  - education
+

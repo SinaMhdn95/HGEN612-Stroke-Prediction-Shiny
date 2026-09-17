@@ -1,0 +1,289 @@
+---
+title: "Stroke Prediction — Classroom Demonstration"
+output:
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: scroll
+    theme:
+      bg: "#0f172a"
+      fg: "#e2e8f0"
+      primary: "#38bdf8"
+runtime: shiny
+---
+
+```{css, echo=FALSE}
+.navbar { background-color: #0b1220; }
+.chart-title { color: #e2e8f0; }
+.disclaimer {
+  border-left: 5px solid #f59e0b;
+  background: #1e293b;
+  padding: 14px 18px;
+  margin: 10px 0 18px 0;
+  border-radius: 6px;
+}
+```
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(shiny)
+library(readr)
+library(dplyr)
+library(tidyr)
+library(janitor)
+library(tidymodels)
+library(themis)
+library(glmnet)
+library(ranger)
+library(xgboost)
+library(vip)
+library(plotly)
+library(DT)
+
+source("R/modeling.R")
+
+data_clean <- load_stroke_data("data/healthcare-dataset-stroke-data.csv")
+bundle_path <- "models/model_bundle.rds"
+
+if (!file.exists(bundle_path)) {
+  stop("Model bundle is missing. Run: Rscript scripts/train_models.R")
+}
+
+model_bundle <- readRDS(bundle_path)
+model_labels <- c(
+  "Logistic Regression" = "logistic",
+  "Random Forest" = "random_forest",
+  "XGBoost" = "xgboost"
+)
+```
+
+Overview
+=======================================================================
+
+Row
+-----------------------------------------------------------------------
+
+### About this project
+
+This HGEN 612 final project demonstrates a reproducible binary-classification
+workflow using logistic regression, random forest, and XGBoost. The dashboard
+explores an educational dataset, compares held-out test performance, and shows
+how a fitted classroom model responds to selected inputs.
+
+<div class="disclaimer">
+<strong>Educational use only.</strong> This application is not a validated
+clinical prediction tool, does not diagnose stroke, and must not be used to make
+medical decisions. The displayed probability describes this dataset and model,
+not an individual's real-world medical risk.
+</div>
+
+Data source: [Stroke Prediction Dataset on Kaggle](https://www.kaggle.com/datasets/fedesoriano/stroke-prediction-dataset).
+The source page limits the data to educational use and asks users to credit the
+dataset author.
+
+### Data summary
+
+```{r summary-cards}
+valueBox(nrow(data_clean), "Complete educational records", icon = "fa-table")
+valueBox(sum(data_clean$stroke == "Yes"), "Records labeled stroke", icon = "fa-heartbeat")
+valueBox(ncol(data_clean) - 2L, "Modeled predictors", icon = "fa-sliders-h")
+```
+
+Data Explorer
+=======================================================================
+
+Column {.sidebar}
+-----------------------------------------------------------------------
+
+```{r explorer-input}
+selectInput(
+  "hist_var",
+  "Variable",
+  choices = c(
+    "Age" = "age",
+    "BMI" = "bmi",
+    "Average glucose level" = "avg_glucose_level",
+    "Hypertension" = "hypertension",
+    "Heart disease" = "heart_disease",
+    "Smoking status" = "smoking_status",
+    "Work type" = "work_type"
+  )
+)
+```
+
+Column
+-----------------------------------------------------------------------
+
+### Distribution
+
+```{r distribution}
+renderPlotly({
+  req(input$hist_var)
+  variable <- input$hist_var
+  values <- data_clean[[variable]]
+
+  plot <- if (is.numeric(values) && length(unique(values)) > 5L) {
+    ggplot(data_clean, aes(x = .data[[variable]], fill = stroke)) +
+      geom_histogram(position = "identity", bins = 30, alpha = 0.65)
+  } else {
+    ggplot(data_clean, aes(x = factor(.data[[variable]]), fill = stroke)) +
+      geom_bar(position = "dodge")
+  }
+
+  plot <- plot +
+    scale_fill_manual(values = c("No" = "#38bdf8", "Yes" = "#f97316")) +
+    labs(x = gsub("_", " ", variable), y = "Count", fill = "Stroke label") +
+    theme_minimal(base_size = 13)
+
+  ggplotly(plot)
+})
+```
+
+### Deidentified preview
+
+```{r data-preview}
+DT::renderDT({
+  data_clean %>%
+    select(-id) %>%
+    head(250) %>%
+    datatable(
+      rownames = FALSE,
+      filter = "top",
+      options = list(pageLength = 8, scrollX = TRUE)
+    )
+})
+```
+
+Model Evaluation
+=======================================================================
+
+Column {.sidebar}
+-----------------------------------------------------------------------
+
+```{r model-selector}
+selectInput("model_choice", "Model", choices = model_labels, selected = "xgboost")
+```
+
+```{r selected-evaluation, include=FALSE}
+selected_evaluation <- reactive({
+  model_bundle$evaluations[[input$model_choice]]
+})
+```
+
+Column
+-----------------------------------------------------------------------
+
+### ROC curve
+
+```{r roc-curve}
+renderPlot({
+  predictions <- collect_predictions(selected_evaluation())
+  roc_curve(predictions, truth = stroke, .pred_Yes, event_level = "second") %>%
+    autoplot() +
+    theme_minimal(base_size = 13)
+})
+```
+
+### Confusion matrix
+
+```{r confusion-matrix}
+renderPlot({
+  predictions <- collect_predictions(selected_evaluation())
+  conf_mat(predictions, truth = stroke, estimate = .pred_class) %>%
+    autoplot(type = "heatmap") +
+    theme_minimal(base_size = 13)
+})
+```
+
+Column
+-----------------------------------------------------------------------
+
+### Held-out test metrics
+
+```{r metrics}
+renderTable({
+  predictions <- collect_predictions(selected_evaluation())
+  bind_rows(
+    accuracy(predictions, truth = stroke, estimate = .pred_class),
+    sens(predictions, truth = stroke, estimate = .pred_class, event_level = "second"),
+    specificity(predictions, truth = stroke, estimate = .pred_class, event_level = "second"),
+    roc_auc(predictions, truth = stroke, .pred_Yes, event_level = "second")
+  ) %>%
+    transmute(Metric = .metric, Estimate = round(.estimate, 3))
+}, striped = TRUE, bordered = TRUE)
+```
+
+### Variable importance
+
+```{r variable-importance}
+renderPlot({
+  fit <- model_bundle$production[[input$model_choice]] %>% extract_fit_parsnip()
+  vip(fit, num_features = 10) + theme_minimal(base_size = 13)
+})
+```
+
+Prediction Demonstration
+=======================================================================
+
+Column {.sidebar}
+-----------------------------------------------------------------------
+
+```{r prediction-inputs}
+selectInput("prediction_model", "Model", choices = model_labels, selected = "xgboost")
+sliderInput("age", "Age", min = 0, max = 100, value = 50)
+selectInput("gender", "Gender", choices = levels(data_clean$gender))
+checkboxInput("hypertension", "Hypertension", FALSE)
+checkboxInput("heart_disease", "Heart disease", FALSE)
+selectInput("ever_married", "Ever married", choices = levels(data_clean$ever_married))
+selectInput("work_type", "Work type", choices = levels(data_clean$work_type), selected = "Private")
+selectInput("residence_type", "Residence type", choices = levels(data_clean$residence_type))
+sliderInput("avg_glucose_level", "Average glucose level", min = 50, max = 300, value = 100)
+sliderInput("bmi", "BMI", min = 10, max = 60, value = 25)
+selectInput("smoking_status", "Smoking status", choices = levels(data_clean$smoking_status))
+actionButton("predict", "Run classroom model", class = "btn-primary")
+```
+
+Column
+-----------------------------------------------------------------------
+
+### Model output
+
+```{r prediction-result}
+prediction_result <- eventReactive(input$predict, {
+  new_data <- tibble(
+    id = max(data_clean$id, na.rm = TRUE) + 1,
+    gender = factor(input$gender, levels = levels(data_clean$gender)),
+    age = input$age,
+    hypertension = as.integer(input$hypertension),
+    heart_disease = as.integer(input$heart_disease),
+    ever_married = factor(input$ever_married, levels = levels(data_clean$ever_married)),
+    work_type = factor(input$work_type, levels = levels(data_clean$work_type)),
+    residence_type = factor(input$residence_type, levels = levels(data_clean$residence_type)),
+    avg_glucose_level = input$avg_glucose_level,
+    bmi = input$bmi,
+    smoking_status = factor(input$smoking_status, levels = levels(data_clean$smoking_status))
+  )
+
+  predict(
+    model_bundle$production[[input$prediction_model]],
+    new_data = new_data,
+    type = "prob"
+  )$.pred_Yes[[1]]
+}, ignoreInit = TRUE)
+
+renderValueBox({
+  probability <- prediction_result()
+  valueBox(
+    value = paste0(round(100 * probability, 1), "%"),
+    caption = "Estimated probability in the classroom model",
+    icon = "fa-chart-line",
+    color = "#0ea5e9"
+  )
+})
+```
+
+<div class="disclaimer">
+The output is a machine-learning demonstration. It is not calibrated or
+validated for clinical use. If you have medical concerns, consult a qualified
+health professional; for possible stroke symptoms, seek emergency care.
+</div>
+
