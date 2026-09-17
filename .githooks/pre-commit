@@ -1,1 +1,5 @@
-# Initializing this directory; replaced by the reviewed file in the next commit.
+#!/usr/bin/env bash
+set -euo pipefail
+bash scripts/privacy_check.sh
+Rscript tests/smoke_test.R
+
