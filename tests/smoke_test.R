@@ -1,5 +1,6 @@
 required_files <- c(
   "app.Rmd",
+  "run_app.R",
   "R/modeling.R",
   "data/healthcare-dataset-stroke-data.csv",
   "models/model_bundle.rds"
@@ -28,5 +29,6 @@ for (name in expected_models) {
 source_text <- paste(readLines("app.Rmd", warn = FALSE), collapse = "\n")
 stopifnot("App has no absolute home path" = !grepl("/Users/", source_text, fixed = TRUE))
 stopifnot("App contains the medical-use disclaimer" = grepl("not a validated", source_text, fixed = TRUE))
+stopifnot("App explains that the complete repository is required" = grepl("not standalone", source_text, fixed = TRUE))
 
 message("Stroke prediction app smoke test passed.")
