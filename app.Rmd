@@ -24,6 +24,21 @@ runtime: shiny
 ```
 
 ```{r setup, include=FALSE}
+required_project_files <- c(
+  "R/modeling.R",
+  "data/healthcare-dataset-stroke-data.csv",
+  "models/model_bundle.rds"
+)
+missing_project_files <- required_project_files[!file.exists(required_project_files)]
+if (length(missing_project_files)) {
+  stop(
+    "This R Markdown file is not standalone. Download and extract the complete ",
+    "GitHub repository, then run run_app.R. Missing: ",
+    paste(missing_project_files, collapse = ", "),
+    call. = FALSE
+  )
+}
+
 library(flexdashboard)
 library(shiny)
 library(readr)
@@ -43,10 +58,6 @@ source("R/modeling.R")
 
 data_clean <- load_stroke_data("data/healthcare-dataset-stroke-data.csv")
 bundle_path <- "models/model_bundle.rds"
-
-if (!file.exists(bundle_path)) {
-  stop("Model bundle is missing. Run: Rscript scripts/train_models.R")
-}
 
 model_bundle <- readRDS(bundle_path)
 model_labels <- c(
@@ -286,4 +297,3 @@ The output is a machine-learning demonstration. It is not calibrated or
 validated for clinical use. If you have medical concerns, consult a qualified
 health professional; for possible stroke symptoms, seek emergency care.
 </div>
-

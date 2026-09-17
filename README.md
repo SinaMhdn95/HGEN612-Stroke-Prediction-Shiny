@@ -23,18 +23,32 @@ A Shiny-enabled `flexdashboard` created for the **HGEN 612: Methods in Data Scie
 ├── R/modeling.R             # Data validation and model definitions
 ├── data/                    # Educational source dataset
 ├── models/model_bundle.rds  # Reproducible fitted/evaluation artifacts
+├── run_app.R                # One-file local launcher
 ├── scripts/                 # Dependency and training utilities
 └── tests/smoke_test.R       # Data, model, and prediction checks
 ```
 
 ## Run locally
 
-Use R 4.3 or newer. From the repository root:
+`app.Rmd` is not a standalone download: it needs the accompanying `R/`,
+`data/`, and `models/` directories. GitHub hosts the source code but cannot run
+a Shiny application directly.
+
+1. On GitHub, select **Code → Download ZIP** (or clone the repository).
+2. Extract the ZIP.
+3. Open `HGEN612-Stroke-Prediction-Shiny.Rproj` in RStudio.
+4. Open `run_app.R` and select **Source**, or run:
 
 ```r
-source("scripts/install_packages.R")
-rmarkdown::run("app.Rmd")
+source("run_app.R")
 ```
+
+The first run installs any missing R packages and then opens the application in
+a local browser window. Use R 4.3 or newer.
+
+For a permanently hosted web app, deploy this repository to a Shiny-compatible
+service such as shinyapps.io or Posit Connect. GitHub Pages only serves static
+files and cannot execute this Shiny application.
 
 To rebuild the model artifacts:
 
