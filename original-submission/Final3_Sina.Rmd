@@ -1,0 +1,500 @@
+---
+title: "Stroke Prediction"
+output:
+  flexdashboard::flex_dashboard:
+    theme:
+      bg: '#101010'
+      fg: '#FDF7F7'
+      primary: '#D6D5D5'
+      base_font:
+        google: Prompt
+      code_font:
+        google: Montserrat
+    orientation: columns
+    vertical_layout: fill
+    source_code: embed
+    logo: stroke7.png
+    favicon: stroke7.png
+runtime: shiny
+resource_files:
+- low_volume_MLs.R
+- XGboost_Final.R
+- RanFor_Final.R
+- Final_Sina.R
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(shiny)
+library(readr)
+library(vip)
+library(janitor)
+library(forcats)
+library(tidymodels)
+library(tidyverse)
+library(modelr)
+library(readxl)
+library(broom)
+library(ggfortify)
+library(performance)
+library(ggplot2)
+library(plotly)
+library(dplyr)
+library(skimr)
+library(rsample)
+library(themis)
+library(yardstick)
+library(xgboost)
+library(bslib)
+library(shinydashboard)
+library(shinythemes)
+library(knitr)
+library(stringr)
+library(shinyjs)
+library(httr)
+library(jsonlite)
+library(rsconnect)
+
+
+# Reactive value to store prediction probability
+stroke_risk <- reactiveVal(0)
+
+# Import data
+dataRaw <- read_csv("healthcare.csv")
+dataClean <- dataRaw %>%
+  clean_names() %>%
+  mutate(
+    ever_married    = if_else(ever_married == "Yes", 1L, 0L),
+    residence_type  = if_else(residence_type == "Urban", 1L, 0L),
+    gender          = if_else(gender == "Male", 1L, 0L),
+    stroke          = factor(stroke, levels = c(0, 1), labels = c("No", "Yes")),
+    work_type       = as.factor(work_type),
+    smoking_status  = as.factor(smoking_status),
+    bmi             = as.numeric(na_if(bmi, "N/A"))
+  )
+
+dataClean2 <- dataClean %>%
+  drop_na() %>%
+  filter(smoking_status != "Unknown")
+```
+
+
+Overview {data-width=800}
+===========================================================
+
+Input your Data Here {.sidebar}
+-----------------------------------------------------------
+##### Predictor's Summary:
+
+```{r side_bar}
+
+selectInput("hist_var", "Select a variable:", 
+  choices = c(
+    "Age" = "age",
+    "BMI" = "bmi",
+    "Glucose Level" = "avg_glucose_level",
+    "Heart Disease" = "heart_disease",
+    "Hypertension" = "hypertension",
+    "Smoking Status" = "smoking_status",
+    "Ever Married" = "ever_married"
+  )
+)
+```
+
+
+```{r data_source}
+div(style = "
+     position: absolute;
+     bottom: 20px;
+     width: 90%; 
+     left: 5%; 
+     text-align: center;",
+  
+  tags$h5("Access Stroke Data", style = "color: #FDF7F7; font-weight: bold; margin-bottom: 10px;"),
+
+  HTML('<a href="https://www.kaggle.com/datasets/fedesoriano/stroke-prediction-dataset" 
+           target="_blank" 
+           class="btn btn-secondary" 
+           role="button" 
+           style="width: 100%;">
+           Go to Data Source
+        </a>')
+)
+```
+
+
+Column {data-width=500}
+-----------------------------------------------------------
+
+### **Project Description**
+
+<p>According to the World Health Organization (WHO) stroke is the 2nd leading cause of death globally, responsible for approximately 11% of total deaths.
+
+A stroke is a medical emergency that occurs when blood flow to a part of the brain is blocked or interrupted, preventing brain cells from getting oxygen and nutrients. Brain cells begin to die within minutes, which can cause permanent damage.
+
+This data set is used to predict whether a patient is likely to get stroke based on the input parameters like gender, age, history of cardiovascular diseases, and smoking status. Each row in the data provides relevant information about the patient.
+
+Created by Sina Mahdiani | Data Science 2 final project</p>
+
+### **Data Dictionary for Selected Variables**
+
+```{r Dictionary, echo=FALSE}
+data.frame(
+  Variables = c("id","gender", "age", "hypertension", "heart_disease", 
+                "ever_married", "work_type", "residence_type", 
+                "avg_glucose_level", "bmi", "smoking_status", "stroke"),
+  Description = c("Unique Identifier",
+                  "Binary variable: 0 = Female, 1 = Male", 
+                  "Continuous variable — patient’s age in years", 
+                  "Binary variable: 0 = No hypertension, 1 = Yes",
+                  "Binary variable: 0 = No history of heart disease, 1 = Yes",
+                  "Binary variable: 0 = Never married, 1 = Ever married",
+                  "Categorical: types of employment (Private, Govt job, etc.)",
+                  "Binary: 0 = Rural, 1 = Urban",
+                  "Continuous variable — average blood glucose level (mg/dL)",
+                  "Continuous variable — Body Mass Index", 
+                  "Categorical: never smoked, formerly smoked, smokes",
+                  "Whether the patient has had a stroke (Yes or No)"),
+  Type = c("Identifier", "Predictor", "Predictor", "Predictor", 
+           "Predictor", "Predictor", "Predictor", "Predictor", 
+           "Predictor", "Predictor", "Predictor", "Outcome")
+) %>% 
+  kable()
+```
+
+
+Column {data-width=600}
+-----------------------------------------------------------
+
+### **Preview of Dataset**
+
+```{r dataset}
+DT::datatable(
+  dataClean2,
+  options = list(pageLength = 5, scrollX = TRUE),
+  rownames = FALSE
+)
+```
+
+### **Dynamic Variable Distribution Plot**
+
+```{r}
+plotlyOutput("hist_plot")
+```
+
+```{r}
+output$hist_plot <- renderPlotly({
+  req(input$hist_var)
+  var <- input$hist_var
+  values <- dataClean2[[var]]
+  is_numeric <- is.numeric(values)
+  is_binary <- is_numeric && length(unique(na.omit(values))) == 2
+
+  p <- if (is_binary) {
+    ggplot(dataClean2, aes(x = factor(.data[[var]]))) +
+      geom_bar(fill = "darkred", color = "#101010", alpha = 0.85)
+  } else if (is_numeric) {
+    ggplot(dataClean2, aes(x = .data[[var]])) +
+      geom_histogram(bins = 30, fill = "orange", color = "#101010", alpha = 0.85)
+  } else {
+    ggplot(dataClean2, aes(x = .data[[var]])) +
+      geom_bar(fill = "darkgreen", color = "#101010", alpha = 0.85)
+  }
+
+  p <- p +
+    geom_hline(yintercept = 0, color = "white", linewidth = 0.3) +
+    geom_vline(xintercept = 0, color = "white", linewidth = 0.3) +
+    labs(
+      title = paste("Distribution of", str_to_title(gsub("_", " ", var))),
+      x = str_to_title(gsub("_", " ", var)),
+      y = "Count"
+    ) +
+    theme_minimal(base_size = 14) +
+    theme(
+      plot.title = element_text(hjust = 0.5, face = "bold", size = 16, color = "white"),
+      axis.title = element_text(face = "bold", size = 12, color = "white"),
+      axis.text = element_text(size = 10, color = "white"),
+      legend.text = element_text(color = "white"),
+      legend.title = element_text(color = "white"),
+      strip.text = element_text(color = "white"),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      plot.background = element_rect(fill = "#101010", color = NA),
+      panel.background = element_rect(fill = "#101010", color = NA)
+    )
+
+  ggplotly(p, tooltip = c("x", "y"))
+})
+```
+
+
+Classification Results {data-width=800}
+===========================================================
+```{r models}
+
+#DATA SPLITTING AND RESAMPLING
+
+set.seed(123)
+splits <- initial_split(dataClean2, strata = stroke)
+
+dataClean_other <- training(splits)
+dataClean_test  <- testing(splits)
+
+# Validation set from training
+set.seed(234)
+val_set <- validation_split(dataClean_other, strata = stroke, prop = 0.8)
+
+#Recipe
+lr_recipe <- recipe(stroke ~ ., data = dataClean_other) %>%
+  update_role(id, new_role = "ID") %>%
+  step_dummy(all_nominal(), -all_outcomes()) %>%
+  step_zv(all_predictors()) %>%
+  step_normalize(all_predictors())
+
+# Load pre-trained workflows
+lr_workflow_best <- readRDS("lr_model.rds")
+rf_workflow_best <- readRDS("rf_model.rds")
+xgb_workflow_best <- readRDS("xgb_model.rds")
+
+# Refit models to training/test split
+lr_last_fit <- lr_workflow_best %>% last_fit(splits)
+rf_last_fit <- rf_workflow_best %>% last_fit(splits)
+xgb_last_fit <- xgb_workflow_best %>% last_fit(splits)
+
+```
+
+Sidebar {.sidebar}
+-----------------------------------------------------------
+#####
+
+```{r ModelChoice}
+selectInput("model_choice", "Choose Model:",
+            choices = c("Logistic Regression", "Random Forest", "XGBoost"))
+```
+
+ROC Curve {data-width=400}
+-----------------------------------------------------------
+
+### ROC Curve
+
+```{r ROC}
+renderPlot({
+  fit <- switch(input$model_choice,
+                "Logistic Regression" = lr_last_fit,
+                "Random Forest" = rf_last_fit,
+                "XGBoost" = xgb_last_fit)
+
+  preds <- fit %>% collect_predictions()
+  roc_curve(preds, truth = stroke, .pred_Yes) %>% 
+    autoplot() + theme_minimal()
+})
+```
+
+
+### Confusion Matrix
+
+```{r ConfMatrix}
+plotOutput("conf_matrix_plot", height = "400px")
+```
+
+```{r ConfusionMatrix, context="server"}
+output$conf_matrix_plot <- renderPlot({
+  fit <- switch(input$model_choice,
+                "Logistic Regression" = lr_last_fit,
+                "Random Forest" = rf_last_fit,
+                "XGBoost" = xgb_last_fit)
+
+  preds <- fit %>% collect_predictions()
+
+  cm <- preds %>%
+    conf_mat(truth = stroke, estimate = .pred_class)
+
+  autoplot(cm, type = "heatmap") +
+    scale_fill_gradient(low = "lightblue", high = "darkred") +
+    labs(title = paste("Confusion Matrix -", input$model_choice),
+         fill = "Count") +
+    theme_minimal(base_size = 14) +
+    theme(
+      plot.title = element_text(hjust = 0.5, face = "bold", size = 16, color = "white"),
+      axis.title = element_text(size = 12, color = "white"),
+      axis.text = element_text(size = 10, color = "white"),
+      plot.background = element_rect(fill = "#101010", color = NA),
+      panel.background = element_rect(fill = "#101010", color = NA),
+      legend.title = element_text(color = "white"),
+      legend.text = element_text(color = "white")
+    )
+})
+```
+
+Variable Importance Plot {data-width=400}
+-----------------------------------------------------------
+### Variable Importance Plot
+
+```{r VIP}
+
+renderPlot({
+  fit <- switch(input$model_choice,
+                "Logistic Regression" = lr_last_fit,
+                "Random Forest" = rf_last_fit,
+                "XGBoost" = xgb_last_fit)
+
+  model <- fit %>% extract_fit_parsnip() %>% pluck("fit")
+
+  #Assign different color per model
+  color <- switch(input$model_choice,
+                  "Logistic Regression" = "orange", 
+                  "Random Forest" = "darkgreen",      
+                  "XGBoost" = "darkred")              
+
+  vip(model, num_features = 10, 
+      aesthetics = list(fill = color, color = color)) +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(hjust = 0.5, face = "bold", size = 16, color = "white"),
+      axis.title = element_text(size = 14, face = "bold", color = "white"),
+      axis.text = element_text(size = 14, face = "bold", color = "white"),
+      plot.background = element_rect(fill = "#101010", color = NA),
+      panel.background = element_rect(fill = "#101010", color = NA),
+ panel.grid.major = element_line(color = "grey30", size = 0.4),
+panel.grid.minor = element_line(color = "grey20", size = 0.2),
+    )
+})
+
+```
+
+### Metrics
+
+```{r metrics_button}
+selectInput("metric_choice", "Choose Metric:",
+            choices = c("Accuracy", "Sensitivity", "Specificity", "AUC"))
+
+```
+
+```{r metrics}
+renderGauge({
+  fit <- switch(input$model_choice,
+                "Logistic Regression" = lr_last_fit,
+                "Random Forest" = rf_last_fit,
+                "XGBoost" = xgb_last_fit)
+
+  preds <- fit %>% collect_predictions()
+
+  metric_value <- switch(input$metric_choice,
+                         "Accuracy" = accuracy(preds, truth = stroke, estimate = .pred_class)$.estimate,
+                         "Sensitivity" = sens(preds, truth = stroke, estimate = .pred_class)$.estimate,
+                         "Specificity" = specificity(preds, truth = stroke, estimate = .pred_class)$.estimate,
+                         "AUC" = roc_auc(preds, truth = stroke, .pred_Yes)$.estimate)
+
+  gauge(round(metric_value * 100), min = 0, max = 100, symbol = '%',
+        gaugeSectors(success = c(85, 100),
+                     warning = c(70, 85),
+                     danger = c(0, 70)))
+})
+```
+
+
+Calculator {data-width=800}
+===========================================================
+
+Sidebar {.sidebar}
+-----------------------------------------------------------
+
+#### Parameters:
+
+```{r side_bar2}
+sliderInput("age", "Age:", min = 0, max = 100, value = 50)
+
+selectInput("gender", "Gender:", choices = c("Male" = 1, "Female" = 0))
+
+selectInput("smoking", "Smoking Status:", 
+            choices = levels(dataClean$smoking_status))
+
+selectInput("work", "Work Type:", choices = levels(dataClean$work_type))
+
+selectInput("residence", "Residence Type:", choices = c("Urban" = 1, "Rural" = 0))
+
+sliderInput("glucose", "Avg Glucose Level:", min = 50, max = 300, value = 100)
+
+sliderInput("bmi", "BMI:", min = 10, max = 60, value = 25)
+
+checkboxInput("married", "Ever Married?", TRUE)
+
+actionButton("predict", "Predict Stroke Risk")
+```
+
+Prediction result {data-width=1000}
+-----------------------------------------------------------
+
+### Let me guess!
+
+```{r prediction}
+
+observeEvent(input$predict, {
+  new_data <- tibble(
+    id = 9999,
+    age = input$age,
+    avg_glucose_level = input$glucose,
+    bmi = input$bmi,
+    gender = as.integer(input$gender),
+    smoking_status = factor(input$smoking, levels = levels(dataClean$smoking_status)),
+    work_type = factor(input$work, levels = levels(dataClean$work_type)),
+    residence_type = as.integer(input$residence),
+    ever_married = as.integer(input$married),
+    hypertension = 0,
+    heart_disease = 0
+  )
+
+  model <- xgb_workflow_best %>% fit(dataClean_other)
+  prediction <- predict(model, new_data, type = "prob")
+  prob <- round(prediction$.pred_Yes * 100, 1)
+
+  stroke_risk(prob)
+})
+
+output$prediction_gauge <- renderGauge({
+  prob <- stroke_risk()
+
+  gauge(prob,
+        min = 0, max = 100, symbol = '%',
+        gaugeSectors(success = c(0, 20), warning = c(20, 50), danger = c(50, 100))
+  )
+})
+```
+
+```{r text-gauge}
+output$prediction_text <- renderUI({
+  prob <- stroke_risk()
+
+  message <- case_when(
+    prob >= 80 ~ "Danger zone! cancel your bungee jump.",
+    prob >= 50 ~ "Hmm... It's not a bad idea to visit a doctor.",
+    prob >= 20 ~ "You're doing okay. Keep it up!",
+    TRUE       ~ "Safe for now — celebrate with an oily pizza and a Diet Coke."
+  )
+
+  HTML(glue::glue(
+    "<div style='margin-top:20px; font-size:20px; color:#FDF7F7; text-align:center;'>
+      {message}<br><span style='font-size:24px; font-weight:bold;'>{prob}%</span>
+    </div>"
+  ))
+})
+```
+
+```{r prediction_output}
+gaugeOutput("prediction_gauge", height = "300px")
+htmlOutput("prediction_text")
+```
+
+### Stroke Awareness Video
+
+```{r stroke_video, echo=FALSE}
+tags$video(
+  src = "stroke.mp4",
+  type = "video/mp4",
+  controls = NA,
+  width = "100%",
+  height = "315",
+  style = "margin-top: 20px; border-radius: 10px;"
+)
+```
+

@@ -1,0 +1,245 @@
+
+--- 
+title: "Stroke Prediction"
+output: 
+  flexdashboard::flex_dashboard:
+    theme:
+      bg: "#101010"
+      fg: "#FDF7F7" 
+      primary: "#D6D5D5"
+      base_font:
+        google: Prompt
+      code_font:
+        google: Montserrat
+    orientation: columns
+    vertical_layout: fill
+    source_code: embed
+    logo: stroke7.png
+    favicon: stroke7.png
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(shiny)
+library(readr)
+library(vip)
+library(janitor)
+library(forcats)
+library(tidymodels)
+library(tidyverse)
+library(modelr)
+library(readxl)
+library(broom)
+library(ggfortify)
+library(performance)
+library(ggplot2)
+library(plotly)
+library(dplyr)
+library(skimr)
+library(rsample)
+library(themis)
+library(yardstick)
+library(xgboost)
+library(bslib)
+library(shinydashboard)
+library(shinythemes)
+library(knitr)
+library(stringr)
+library(shinyjs)
+library(httr)
+library(jsonlite)
+library(glue)
+
+stroke_risk <- reactiveVal(0)
+
+dataRaw <- read_csv("healthcare.csv")
+dataClean <- dataRaw %>%
+  clean_names() %>%
+  mutate(
+    ever_married    = if_else(ever_married == "Yes", 1L, 0L),
+    residence_type  = if_else(residence_type == "Urban", 1L, 0L),
+    gender          = if_else(gender == "Male", 1L, 0L),
+    stroke          = factor(stroke, levels = c(0, 1), labels = c("No", "Yes")),
+    work_type       = as.factor(work_type),
+    smoking_status  = as.factor(smoking_status),
+    bmi             = as.numeric(na_if(bmi, "N/A"))
+  )
+
+dataClean2 <- dataClean %>%
+  drop_na() %>%
+  filter(smoking_status != "Unknown")
+
+set.seed(123)
+splits <- initial_split(dataClean2, strata = stroke)
+dataClean_other <- training(splits)
+
+lr_workflow_best <- readRDS("lr_model.rds")
+rf_workflow_best <- readRDS("rf_model.rds")
+xgb_workflow_best <- readRDS("xgb_model.rds")
+
+lr_last_fit <- lr_workflow_best %>% last_fit(splits)
+rf_last_fit <- rf_workflow_best %>% last_fit(splits)
+xgb_last_fit <- xgb_workflow_best %>% last_fit(splits)
+```
+
+Intro {data-width=1000}
+=======================================================================
+
+```{r intro, echo=FALSE}
+htmltools::tagList(
+  tags$div(
+    id = "custom-navbar",
+    style = "
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 40px;
+      font-family: 'Montserrat';
+      font-size: 22px;
+      z-index: 1000;
+    ",
+    tags$a(href = "#section-overview", "Explore", style = "color: white; text-decoration: none;")
+  ),
+
+  tags$img(
+    src = "www/stroke2.jpg",
+    style = "
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      z-index: -1;
+    "
+  ),
+
+  tags$div(
+    style = "
+      position: absolute;
+      top: 20%;
+      left: 50%;
+      transform: translate(-50%, -30%);
+      text-align: center;
+      color: white;
+      font-family: 'Montserrat', sans-serif;
+    ",
+    tags$h1(
+      "STROKE PREDICTION",
+      style = "font-size: 50px;color: white; letter-spacing: 5px; margin-bottom: 20px;"
+    ),
+    tags$h3(
+      "HGEN 612 Final Project",
+      style = "font-size: 24px;color: white; letter-spacing: 2px; margin-bottom: 200px;"
+    ),
+    tags$a(
+      href = "#section-overview",
+      "Explore",
+      style = "
+        position: absolute;
+        top: 750px;
+        left: 50%;
+        transform: translateX(-50%);
+        padding: 12px 30px;
+        font-size: 20px;
+        font-weight: 600;
+        color: white;
+        background-color: transparent;
+        border: 2px solid white;
+        border-radius: 8px;
+        text-decoration: none;
+        transition: 0.3s;
+      "
+    )
+  )
+)
+```
+
+Overview {data-width=800}
+=======================================================================
+
+Input {.sidebar}
+-----------------------------------------------------------------------
+```{r}
+sliderInput("age", "Age:", min = 0, max = 100, value = 50)
+selectInput("gender", "Gender:", choices = c("Male" = 1, "Female" = 0))
+selectInput("smoking", "Smoking Status:", choices = levels(dataClean$smoking_status))
+selectInput("work", "Work Type:", choices = levels(dataClean$work_type))
+selectInput("residence", "Residence Type:", choices = c("Urban" = 1, "Rural" = 0))
+sliderInput("glucose", "Avg Glucose Level:", min = 50, max = 300, value = 100)
+sliderInput("bmi", "BMI:", min = 10, max = 60, value = 25)
+checkboxInput("married", "Ever Married?", TRUE)
+actionButton("predict", "Predict Stroke Risk")
+```
+
+Prediction Gauge + Message
+-----------------------------------------------------------------------
+
+```{r}
+observeEvent(input$predict, {
+  new_data <- tibble(
+    id = 9999,
+    age = input$age,
+    avg_glucose_level = input$glucose,
+    bmi = input$bmi,
+    gender = as.integer(input$gender),
+    smoking_status = factor(input$smoking, levels = levels(dataClean$smoking_status)),
+    work_type = factor(input$work, levels = levels(dataClean$work_type)),
+    residence_type = as.integer(input$residence),
+    ever_married = as.integer(input$married),
+    hypertension = 0,
+    heart_disease = 0
+  )
+
+  model <- xgb_workflow_best %>% fit(dataClean_other)
+  prediction <- predict(model, new_data, type = "prob")
+  prob <- round(prediction$.pred_Yes * 100, 1)
+
+  stroke_risk(prob)
+})
+
+output$prediction_gauge <- renderGauge({
+  prob <- stroke_risk()
+
+  gauge(prob,
+        min = 0, max = 100, symbol = '%',
+        gaugeSectors(success = c(0, 20), warning = c(20, 50), danger = c(50, 100))
+  )
+})
+
+output$prediction_text <- renderUI({
+  prob <- stroke_risk()
+  message <- case_when(
+    prob >= 80 ~ "🚨 Danger zone! Cancel your bungee jump.",
+    prob >= 50 ~ "⚠️ Hmm... It's not a bad idea to visit a doctor.",
+    prob >= 20 ~ "🙂 You're doing okay. Keep it up!",
+    TRUE       ~ "🎉 Safe for now — celebrate with an oily pizza and a Diet Coke."
+  )
+
+  HTML(glue::glue(
+    "<div style='margin-top:20px; font-size:20px; color:#FDF7F7; text-align:center;'>
+      {message}<br><span style='font-size:24px; font-weight:bold;'>{prob}%</span>
+    </div>"
+  ))
+})
+```
+
+```{r}
+gaugeOutput("prediction_gauge", height = "300px")
+htmlOutput("prediction_text")
+```
+
+Stroke Awareness Video
+-----------------------------------------------------------------------
+```{r}
+tags$video(
+  src = "stroke.mp4",
+  type = "video/mp4",
+  controls = NA,
+  width = "100%",
+  height = "315",
+  style = "margin-top: 20px; border-radius: 10px;"
+)
+```

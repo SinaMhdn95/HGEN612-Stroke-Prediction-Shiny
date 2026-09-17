@@ -1,0 +1,309 @@
+---
+title: "STROKE PREDICTION"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+    logo: heart2.png
+    favicon: heart2.png
+    theme: lumen
+    source_code: embed
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+library(shiny)
+library(readr)       # for importing data
+library(vip)         # for variable importance plots
+library(janitor)     # for tabyl
+library(forcats)     # for factor operations
+library(tidymodels)
+library(tidyverse)
+library(modelr)
+library(tidyverse)
+library(readxl)
+library(broom)
+library(ggfortify)
+library(performance)
+library(ggplot2)
+library(plotly)
+library(dplyr)
+library(skimr)
+library(rsample)
+library(themis)
+library(yardstick)
+library(xgboost)
+library(bslib)
+library(shinydashboard)
+library(skimr)
+
+# Import data
+dataRaw <- read_csv("healthcare.csv")
+dataClean <- dataRaw %>%
+  clean_names() %>%
+  mutate(
+    ever_married    = if_else(ever_married == "Yes", 1L, 0L),
+    residence_type  = if_else(residence_type == "Urban", 1L, 0L),
+    gender          = if_else(gender == "Male", 1L, 0L),
+    stroke          = factor(stroke, levels = c(0, 1), labels = c("No", "Yes")),
+    work_type       = as.factor(work_type),
+    smoking_status  = as.factor(smoking_status),
+    bmi             = as.numeric(na_if(bmi, "N/A"))
+  )
+
+dataClean2 <- dataClean %>%
+  drop_na() %>%
+  filter(smoking_status != "Unknown")
+
+```
+
+# home
+
+
+```{r title, echo=FALSE}
+
+#Hides default navbar, tabset, and sidebar.
+#Styles the dashboard title and top navbar links.
+
+htmltools::tagList(
+  htmltools::tags$link(
+    href = "https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&display=swap",
+    rel = "stylesheet"
+  ),
+  htmltools::tags$style(HTML("
+    .navbar-fixed-top, .tabbable, .section.sidebar {
+      display: none !important;
+    }
+    .navbar-brand {
+      font-family: 'Montserrat';
+      font-size: 20px;
+      font-weight: 300;
+      color: rgba(255, 255, 255, 0.9) !important;
+      text-shadow: 2px 2px 5px rgba(0, 0, 0, 0.5);
+      letter-spacing: 5px;
+    }
+    #custom-navbar a {
+      color: white;
+      font-weight: 600;
+      font-size: 20px;
+      letter-spacing: 2px;
+      transition: 0.3s;
+    }
+    #custom-navbar a:hover {
+      color: #FFD700;
+      text-decoration: underline;
+    }
+  "))
+)
+```
+
+
+```{r sentence, echo=FALSE}
+#Adds custom Google font (Montserrat)
+
+htmltools::tagList(
+  htmltools::tags$link(
+    href = "https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&display=swap",
+    rel = "stylesheet"
+  ),
+  htmltools::tags$style(HTML("
+.photo-caption {
+  position: absolute;
+  top: 100px; /* distance from top */
+  left: 50%;
+  transform: translateX(-60%);
+  font-family: 'Montserrat', sans-serif;
+  font-size: 30px;
+  font-weight: 300;
+  color: white;
+  text-align: center;
+  letter-spacing: 5px;
+  line-height: 2;
+}
+"))
+)
+```
+
+
+Column {data-width=1000}
+-----------------------------------------------------------------------
+
+```{r hover, echo=FALSE}
+#Adds a floating navigation bar with anchor links
+#Adds a full-screen background image
+#Displays a title and navigation buttons over the image.
+#Includes external links (student LinkedIn, instructor profile)
+
+htmltools::tagList(
+  tags$div(
+    id = "custom-navbar",
+    style = "
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 40px;
+      font-family: 'Montserrat';
+      font-size: 22px;
+      z-index: 1000;
+    ",
+    tags$a(href = "#section-home", "Home", style = "color: white; text-decoration: none;"),
+    tags$a(href = "#section-data", "Summary", style = "color: white; text-decoration: none;"),
+    tags$a(href = "#section-prediction", "Analysis", style = "color: white; text-decoration: none;")
+  ),
+  
+  # Fix sidebar and container
+  tags$style(HTML("
+    .sidebar { display: none !important; }
+    .main-container {
+      margin-left: 0px !important;
+      padding-left: 0px !important;
+    }
+  ")),
+
+  # Background image
+  tags$img(
+    src = "www/stroke2.jpg",
+    style = "
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      z-index: -1;
+    "
+  ),
+
+  # Title and button centered
+  tags$div(
+    style = "
+      position: absolute;
+      top: 20%;
+      left: 50%;
+      transform: translate(-50%, -30%);
+      text-align: center;
+      color: white;
+      font-family: 'Montserrat', sans-serif;
+    ",
+    tags$h1(
+      "STROKE PREDICTION",
+      style = "font-size: 50px;color: white; letter-spacing: 5px; margin-bottom: 20px;"
+    ),
+    tags$h3(
+      "HGEN 612 Final Project",
+      style = "font-size: 24px;color: white; letter-spacing: 2px; margin-bottom: 200px;"
+    ),
+    tags$a(
+  href = "#section-data",
+  "Explore",
+  style = "
+    position: absolute;
+    top: 750px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 12px 30px;
+    font-size: 20px;
+    font-weight: 600;
+    color: white;
+    background-color: transparent;
+    border: 2px solid white;
+    border-radius: 8px;
+    text-decoration: none;
+    transition: 0.3s;
+  "
+),
+tags$a(
+    href = "https://www.linkedin.com/in/sinamahdiani/",
+    "Student: Sina Mahdiani",
+    target = "_blank",
+    style = "
+      position: fixed;
+      bottom: -400px;
+      right: -300px;
+      color: white;
+      font-family: 'Montserrat', sans-serif;
+      font-size: 16px;
+      font-weight: 400;
+      text-decoration: none;
+      z-index: 1000;
+      opacity: 0.8;
+      transition: 0.3s;
+    "
+  ),
+
+tags$a(
+    href = "https://medschool.vcu.edu/about/portfolio/details/tpyork/",
+    "Instructor: Dr. Timothy York",
+    target = "_blank",
+    style = "
+      position: fixed;
+      bottom: -350px;
+      right: -315px;
+      color: white;
+      font-family: 'Montserrat', sans-serif;
+      font-size: 16px;
+      font-weight: 400;
+      text-decoration: none;
+      z-index: 1000;
+      opacity: 0.8;
+      transition: 0.3s;
+    "
+  )
+  )
+)
+```
+
+
+# data
+
+Sidebar {.sidebar}
+===========================================================
+
+##### Predictor's Summary:
+
+```{r side_bar}
+selectInput("hist_var", "Select a variable:", 
+  choices = c("Age" = "age", "BMI" = "bmi", "Glucose Level" = "avg_glucose_level",
+              "Heart Disease" = "heart_disease", "Hypertension" = "hypertension"))
+```
+
+#### Prediction:
+```{r side_bar2}
+sliderInput("age", "Age:", min = 0, max = 100, value = 50)
+
+selectInput("gender", "Gender:", choices = c("Male" = 1, "Female" = 0))
+
+selectInput("smoking", "Smoking Status:", 
+            choices = levels(dataClean$smoking_status))
+
+selectInput("work", "Work Type:", choices = levels(dataClean$work_type))
+
+selectInput("residence", "Residence Type:", choices = c("Urban" = 1, "Rural" = 0))
+
+sliderInput("bmi", "BMI:", min = 10, max = 60, value = 25)
+
+checkboxInput("married", "Ever Married?", TRUE)
+
+actionButton("predict", "Predict Stroke Risk")
+```
+
+Overview {data-width=800}
+===========================================================
+
+Column {data-width=300}
+-----------------------------------------------------------
+
+### **Project Description**
+
+```{r}
+htmltools::div(
+  style = "background-color:#1a1a1a; padding:20px; border-radius:10px; color:white;",
+  HTML("<h4>About This Project</h4><p>According to the World Health Organization (WHO) stroke is the 2nd leading cause of death globally, responsible for approximately 11% of total deaths.
+
+This data set is used to predict whether a patient is likely to get stroke based on the input parameters like gender, age, various diseases, and smoking status. Each row in the data provides relevant information about the patient.</p>")
+)
+```
+
+### **Data Dictionary for Selected Variables**
+

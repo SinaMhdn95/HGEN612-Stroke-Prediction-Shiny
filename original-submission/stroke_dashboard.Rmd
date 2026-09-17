@@ -1,0 +1,143 @@
+---
+title: "Stroke Prediction"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+    logo: heart2.png
+    favicon: heart2.png
+    theme: lumen
+    source_code: embed
+runtime: shiny
+---
+
+```{r global, include=FALSE}
+library(tidymodels)
+library(shiny)
+library(shinyWidgets)
+library(readr)
+library(dplyr)
+library(janitor)
+library(vip)
+library(ggplot2)
+library(plotly)
+library(themis)
+library(xgboost)
+library(DT)
+
+# Load and clean data
+dataRaw <- read_csv("healthcare.csv")
+
+set.seed(123)
+dataClean <- dataRaw %>%
+  clean_names() %>%
+  mutate(
+    ever_married = if_else(ever_married == "Yes", 1L, 0L),
+    residence_type = if_else(residence_type == "Urban", 1L, 0L),
+    gender = if_else(gender == "Male", 1L, 0L),
+    stroke = factor(stroke, levels = c(0, 1), labels = c("No", "Yes")),
+    work_type = as.factor(work_type),
+    smoking_status = as.factor(smoking_status),
+    bmi = as.numeric(na_if(bmi, "N/A"))
+  ) %>%
+  drop_na() %>%
+  filter(smoking_status != "Unknown")
+
+splits <- initial_split(dataClean, strata = stroke)
+dataTrain <- training(splits)
+dataTest <- testing(splits)
+val_set <- validation_split(dataTrain, strata = stroke, prop = 0.8)
+
+xgb_recipe <- recipe(stroke ~ ., data = dataTrain) %>%
+  step_dummy(all_nominal(), -all_outcomes()) %>%
+  step_zv(all_predictors()) %>%
+  step_normalize(all_predictors()) %>%
+  step_smote(stroke)
+
+xgb_mod <- boost_tree(trees = 1000, tree_depth = tune(), learn_rate = tune(),
+                      loss_reduction = tune(), sample_size = tune(), mtry = tune()) %>%
+  set_engine("xgboost") %>%
+  set_mode("classification")
+
+xgb_workflow <- workflow() %>%
+  add_model(xgb_mod) %>%
+  add_recipe(xgb_recipe)
+
+xgb_res <- tune_grid(
+  xgb_workflow,
+  resamples = val_set,
+  grid = 10,
+  metrics = metric_set(roc_auc, accuracy, sens, specificity),
+  control = control_grid(save_pred = TRUE)
+)
+
+xgb_best <- select_best(xgb_res, metric = "roc_auc")
+xgb_workflow_best <- finalize_workflow(xgb_workflow, xgb_best)
+xgb_last_fit <- last_fit(xgb_workflow_best, splits)
+xgb_preds <- collect_predictions(xgb_last_fit)
+xgb_metrics <- metric_set(sens, specificity, ppv, npv, accuracy, roc_auc)(xgb_preds, truth = stroke, estimate = .pred_class, .pred_Yes)
+``` 
+
+Sidebar {.sidebar}
+---
+```{r}
+sliderInput("age", "Age:", min = 0, max = 100, value = 50)
+
+selectInput("gender", "Gender:", choices = c("Male" = 1, "Female" = 0))
+
+selectInput("smoking", "Smoking Status:", 
+            choices = levels(dataClean$smoking_status))
+
+selectInput("work", "Work Type:", choices = levels(dataClean$work_type))
+
+selectInput("residence", "Residence Type:", choices = c("Urban" = 1, "Rural" = 0))
+
+sliderInput("bmi", "BMI:", min = 10, max = 60, value = 25)
+
+checkboxInput("married", "Ever Married?", TRUE)
+
+actionButton("predict", "Predict Stroke Risk")
+```
+
+Model Summary and Evaluation
+===
+
+## Data Viewer
+```{r}
+dataClean %>% 
+  select(age, gender, hypertension, heart_disease, ever_married, work_type, Residence_type = residence_type, avg_glucose_level, bmi, smoking_status, stroke) %>% 
+  datatable(options = list(pageLength = 10))
+```
+
+## Variable Importance
+```{r}
+xgb_last_fit$.workflow[[1]] %>%
+  pull_workflow_fit() %>%
+  vip(num_features = 10)
+```
+
+## Confusion Matrix
+```{r}
+xgb_last_fit %>%
+  collect_predictions() %>%
+  conf_mat(truth = stroke, estimate = .pred_class) %>%
+  autoplot(type = "heatmap")
+```
+
+## ROC Curve
+```{r}
+xgb_last_fit %>%
+  collect_predictions() %>%
+  roc_curve(truth = stroke, .pred_Yes) %>%
+  autoplot()
+```
+
+## Prediction Metrics
+```{r}
+xgb_metrics %>%
+  select(.metric, .estimate)
+```
+
+## Source Code
+```{r}
+print("Code embedded in dashboard (see top right corner)")
