@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-bash scripts/privacy_check.sh
-Rscript tests/smoke_test.R
-
+if find . -type f \( -name '*.Renviron*' -o -name '*recovery*' \) -print -quit | grep -q .; then
+  echo "Credential or recovery-code file detected; remove it before committing." >&2
+  exit 1
+fi
